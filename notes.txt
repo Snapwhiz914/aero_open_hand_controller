@@ -1,0 +1,60 @@
+46 newtons max amount of force on the string that the servo can provide
+
+we should set up the position sensor so that 0 is fully extended and 65535 is fully grasped.
+    1. first put the hand together, making sure that all strings are on their pulleys enough.
+    2. then, run the homing sequence.
+    3. then, try each motor's position slider and see if it does its required range of motion. if not, trim servos in 10-20 degree increments
+    4. then do torque pid
+
+so a decent PID starting point should be:
+P = max torque over max possible sensor distance = 1000/65535 = 0.0152590219 ~= 0.015, and increase until oscillations
+I = 0
+D = once you get oscillations, set this to 1/10 of whatever your P is when you get oscillations and go from there
+
+you should also have a "release" and "grasp" button. release button just fully extends the hand, and grasp closes the hand until a configurable torque threshold is reached for each finger. this torque threshold should be configurable via a dialog, but set to a default of 500 newtons
+    - press release before unplugging the servos
+
+also make sure that, after homing, all of the control sliders are updated to the position that was last set.
+
+2/26:
+    - you need to edit the trim slider so you can change extend and grasp counts
+    - also solve the busy bus problem: something is sending so much data over the bus that it's hogging it. i need to find were/when this happens. what might help is having claude create a test serial bus that doesn't respond to some messages and see what the code does.
+
+theorietical pps calculation
+
+if we can do one mega bit per second (ie 1_000_000 bit per second):
+    -8 bits for a byte
+    -commands average 6 bytes
+    -so 48 bits per command
+    -how many commands do we send per second? 
+
+2/28:
+    - add serial port logging for use with real board
+
+FUTURE:
+- A macro recorder and playback system, so that we can write our own grips
+- Unrealistic: a hand joint detection model integrated in, that essentially turns hand joint detected points into slider values so that it can be played back.
+    - how to do: probably use google hand landmarks model. since this software cant use gpu on windows supposedly, it makes more sense to run the model on WSL2 and host a data server to communicate with the other side.
+    - what you do: set up env for the mediapipe and landmark model visualizer on WSL2
+    - what claude will do:
+        - on wsl2 server side: write server side code & comm protocol. have this side deal with determining which landmark corresponds to which finger, and then send the client the finger points relative to each fingers connection point on hand
+        - on windows client side: add option for gui to take input from wsl2, and take this input and turn it into a control angle for the hand. the client side should handle finger points-to-control angle calculation.
+    - found out that its too much effort to use gpu on wsl. therefore we will just on it on the windows machine
+        - 3/7: so far we have moved the hand_detector
+- solder wires to the pins of the control board for the 3v3 ttl usb adapter
+
+3/7: so it seems like the control board just doesnt work. i dont know how or why but it doesn't. so here's my idea to just 
+use the red board and make everything compact:
+1. use the splitters to 2 buses that can connect to 2 of the ports on the URT. make one bus for 4 servos (need 3 splitters), and one bus for 3 servos (need 2 splitters)
+2. stuff the splitters into where the control board would have been, and run the two bus wires out of the USBC and power connector slots on the hand
+3. create a smooth, good looking 3d printed enclosure for the URT board that can be glued on the back of the hand.
+4. cut off the current yellow connector on the power supply, and wire the connector directly into the URT power supply terminal
+
+also hand detector over simulation things
+1. noticed that the middle finger graphic line is never updated - this might be linked to the middle finger that STILL doesnt work on the real hand
+2. the thumb joints dont actuate at all
+3. definetly going to need an LPF to reduce jitter
+
+fixed number 2, but thumb flexor and tendon might need to have multipliers to make more sensitive.
+
+update on 1 - after putting in the 3d model, i think it really is a code problem. ive renamed the possibly broken hand config (3/8), so we will re home on real hand and see if that fixes it. there is a claude convo that gives other possible causes.

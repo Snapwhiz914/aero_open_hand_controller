@@ -1,0 +1,9 @@
+[submodule "arduino_code/FTServo_Arduino"]
+	path = arduino_code/FTServo_Arduino
+	url = https://github.com/ftservo/FTServo_Arduino
+[submodule "arduino_code/aero-hand-open"]
+	path = arduino_code/aero-hand-open
+	url = https://github.com/TetherIA/aero-hand-open
+[submodule "aero-open-sim"]
+	path = aero-open-sim
+	url = https://github.com/TetherIA/aero-open-sim/

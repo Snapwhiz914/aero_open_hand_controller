@@ -2,5 +2,5 @@
   "mcp_pip_coupling": 1.25,
   "cmc_abd_scale": 4.09,
   "cmc_abd_offset": -0.28,
-  "smoothing_alpha": 0.51
+  "smoothing_alpha": 0.45
 }

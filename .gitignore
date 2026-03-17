@@ -218,6 +218,5 @@ __marimo__/
 # PROJECT SPECIFIC GITIGNORE
 CLAUDE.md
 .claude/
-logs/
-macros/
-hand/ttl/*.json
+runtime/
+configs/

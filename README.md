@@ -4,6 +4,11 @@ The [Aero Hand Open](https://tetheria.github.io/aero-hand-open/) is a low cost, 
 
 This project is a monorepo containing all code I have used to control the hand, all wrapped up in a feature-rich GUI.
 
+| | |
+|---|---|
+| ![Startup screen](docs/images/gui_startup_screenshot.png) | ![Main screen](docs/images/gui_main_screenshot.png) |
+
+
 ## Feature descriptions
 
 - **Hardware interfacing**: The hand.py is an abstract class that presents a collection of control methods. It has 2 implementations: the "ttl" implementation expects the serial port to be directly connected to the serial bus (ie. no ESP32 middleman), and the "sdk" implementation expects the serial port to be connected to the ESP32 with the [Aero Hand Open Firmware](https://github.com/TetherIA/aero-hand-open/tree/main/firmware/main) programmed on it and uses the SDK from TetherIA.

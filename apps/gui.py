@@ -32,7 +32,11 @@ from PyQt6.QtWidgets import (
 from hand import Hand, MacroRecorder, MacroPlayer, list_macros, delete_macro
 from hand.ttl import HandTTL
 from hand.sdk import HandESP32
-from hand_detector import HandDetector, hand_data_to_positions
+from hand_detector import (
+    HandDetector, hand_data_to_positions, LandmarkData, FrameType,
+    AVAILABLE_SOURCES, AVAILABLE_DETECTORS, AVAILABLE_CALCULATORS,
+    get_detector_class,
+)
 
 try:
     from sim.hand_view_mujoco import MuJoCoHandWidget
@@ -350,6 +354,159 @@ class MacroSelectDialog(QDialog):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Detection pipeline selection dialog
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DetectionDialog(QDialog):
+    """Dialog for selecting the detection pipeline components.
+
+    Greys out detectors and joint calculators that are incompatible with the
+    currently selected source's frame type.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Detection Pipeline")
+        self.setMinimumWidth(480)
+        layout = QVBoxLayout(self)
+
+        # ── Source ───────────────────────────────────────────────────────
+        src_box = QGroupBox("Frame source")
+        src_layout = QVBoxLayout(src_box)
+        self._src_group = QButtonGroup(self)
+        self._src_keys: list[str] = []
+        for i, (key, info) in enumerate(AVAILABLE_SOURCES.items()):
+            rb = QRadioButton(key)
+            rb.setToolTip(info["description"])
+            if i == 0:
+                rb.setChecked(True)
+            self._src_group.addButton(rb, i)
+            src_layout.addWidget(rb)
+            self._src_keys.append(key)
+        layout.addWidget(src_box)
+
+        # ── Detector ─────────────────────────────────────────────────────
+        det_box = QGroupBox("Hand landmark detector")
+        det_layout = QVBoxLayout(det_box)
+        self._det_group = QButtonGroup(self)
+        self._det_keys: list[str] = []
+        self._det_buttons: list[QRadioButton] = []
+        for i, (key, info) in enumerate(AVAILABLE_DETECTORS.items()):
+            rb = QRadioButton(key)
+            rb.setToolTip(info["description"])
+            if i == 0:
+                rb.setChecked(True)
+            self._det_group.addButton(rb, i)
+            det_layout.addWidget(rb)
+            self._det_keys.append(key)
+            self._det_buttons.append(rb)
+        layout.addWidget(det_box)
+
+        # ── Joint calculator ─────────────────────────────────────────────
+        calc_box = QGroupBox("Joint angle calculator")
+        calc_layout = QVBoxLayout(calc_box)
+        self._calc_group = QButtonGroup(self)
+        self._calc_keys: list[str] = []
+        self._calc_buttons: list[QRadioButton] = []
+        for i, (key, info) in enumerate(AVAILABLE_CALCULATORS.items()):
+            rb = QRadioButton(key)
+            rb.setToolTip(info["description"])
+            if i == 0:
+                rb.setChecked(True)
+            self._calc_group.addButton(rb, i)
+            calc_layout.addWidget(rb)
+            self._calc_keys.append(key)
+            self._calc_buttons.append(rb)
+        layout.addWidget(calc_box)
+
+        # ── Preview checkbox ─────────────────────────────────────────────
+        self._chk_preview = QCheckBox("Show camera preview window")
+        self._chk_preview.setToolTip(
+            "Open a cv2 window with hand landmark overlay during detection")
+        layout.addWidget(self._chk_preview)
+
+        # ── Buttons ──────────────────────────────────────────────────────
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        # ── Wire up compatibility filtering ──────────────────────────────
+        self._src_group.idToggled.connect(self._update_compatibility)
+        self._det_group.idToggled.connect(self._update_compatibility)
+        self._update_compatibility()
+
+    # ── Compatibility logic ──────────────────────────────────────────────
+
+    def _selected_source_frame_type(self):
+        idx = self._src_group.checkedId()
+        if idx < 0:
+            return None
+        key = self._src_keys[idx]
+        return AVAILABLE_SOURCES[key]["frame_type"]
+
+    def _selected_detector_name(self):
+        idx = self._det_group.checkedId()
+        if idx < 0:
+            return None
+        key = self._det_keys[idx]
+        return AVAILABLE_DETECTORS[key]["name"]
+
+    def _update_compatibility(self):
+        frame_type = self._selected_source_frame_type()
+        if frame_type is None:
+            return
+
+        # Filter detectors by frame type
+        for i, key in enumerate(self._det_keys):
+            info = AVAILABLE_DETECTORS[key]
+            compatible = frame_type in info["supported_frame_types"]
+            self._det_buttons[i].setEnabled(compatible)
+            if not compatible and self._det_buttons[i].isChecked():
+                self._det_buttons[i].setChecked(False)
+                self._select_first_enabled(self._det_buttons, self._det_group)
+
+        # Filter calculators by frame type AND detector
+        det_name = self._selected_detector_name()
+        for i, key in enumerate(self._calc_keys):
+            info = AVAILABLE_CALCULATORS[key]
+            ft_ok = frame_type in info["supported_frame_types"]
+            det_ok = (
+                info["supported_detectors"] is None
+                or det_name in info["supported_detectors"]
+            )
+            compatible = ft_ok and det_ok
+            self._calc_buttons[i].setEnabled(compatible)
+            if not compatible and self._calc_buttons[i].isChecked():
+                self._calc_buttons[i].setChecked(False)
+                self._select_first_enabled(self._calc_buttons, self._calc_group)
+
+    @staticmethod
+    def _select_first_enabled(buttons, group):
+        for btn in buttons:
+            if btn.isEnabled():
+                btn.setChecked(True)
+                return
+
+    # ── Accessors ────────────────────────────────────────────────────────
+
+    def selected_source_key(self) -> str:
+        return self._src_keys[self._src_group.checkedId()]
+
+    def selected_detector_key(self) -> str:
+        return self._det_keys[self._det_group.checkedId()]
+
+    def selected_calculator_key(self) -> str:
+        return self._calc_keys[self._calc_group.checkedId()]
+
+    def show_preview(self) -> bool:
+        return self._chk_preview.isChecked()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Hand graphic widget (QGraphicsScene)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -469,8 +626,9 @@ class _Signals(QObject):
     status        = pyqtSignal(str)
     homing_done   = pyqtSignal(str)   # empty = success, else error text
     manual_prompt = pyqtSignal(str)
-    hand_positions = pyqtSignal(list)  # list[int], 7 values; emitted on detector thread
-    grasp_done    = pyqtSignal()       # emitted when grasp movement finishes
+    hand_positions  = pyqtSignal(list)  # list[int], 7 values; emitted on detector thread
+    detector_error  = pyqtSignal(str)  # fatal error from detector background thread
+    grasp_done      = pyqtSignal()     # emitted when grasp movement finishes
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,8 +661,9 @@ class MainWindow(QMainWindow):
         _PARAMS_PATH = os.path.join(os.path.dirname(__file__), "..", "configs", "detector_params.json")
         _PARAM_DEFAULTS = {"mcp_pip_coupling": 0.5, "cmc_abd_scale": 1.0, "cmc_abd_offset": 0.0, "smoothing_alpha": 0.3}
 
-        self._detector = HandDetector()
+        self._detector: HandDetector | None = None
         self._detector_cb_id: str | None = None
+        self._joint_calculator = None
         self._params_path = _PARAMS_PATH
 
         try:
@@ -516,6 +675,7 @@ class MainWindow(QMainWindow):
         self._smoothed_positions: list[float] | None = None
 
         self._sig.hand_positions.connect(self._on_detector_positions)
+        self._sig.detector_error.connect(self._on_detector_error)
 
         # Macro recording/playback
         self._macro_recorder = MacroRecorder(hand, macro_dir=MACRO_DIR,
@@ -583,16 +743,12 @@ class MainWindow(QMainWindow):
         self._btn_start_detector.setToolTip("Start hand tracking and mirror pose to servos")
         self._btn_start_detector.clicked.connect(self._cmd_start_detector)
 
-        self._chk_show_preview = QCheckBox("Show preview")
-        self._chk_show_preview.setToolTip("Open a cv2 window with landmark overlay")
-
         self._btn_stop_detector = QPushButton("Stop Detection")
         self._btn_stop_detector.setToolTip("Stop hand tracking and re-enable manual control")
         self._btn_stop_detector.clicked.connect(self._cmd_stop_detector)
         self._btn_stop_detector.setEnabled(False)
 
         hl.addWidget(self._btn_start_detector)
-        hl.addWidget(self._chk_show_preview)
         hl.addWidget(self._btn_stop_detector)
 
         hl.addStretch()
@@ -1097,8 +1253,30 @@ class MainWindow(QMainWindow):
             self._set_status("Set ID failed.")
 
     def _cmd_start_detector(self):
+        dlg = DetectionDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Build the selected pipeline components
+        src_info = AVAILABLE_SOURCES[dlg.selected_source_key()]
+        source = src_info["class"]()
+
+        det_key = dlg.selected_detector_key()
+        detector_cls = get_detector_class(det_key)
+        detector = detector_cls()
+
+        calc_info = AVAILABLE_CALCULATORS[dlg.selected_calculator_key()]
+        self._joint_calculator = calc_info["class"]()
+        det_info = AVAILABLE_DETECTORS[det_key]
+        self._det_frame_type = src_info["frame_type"]
+        self._det_detector_name = det_info["name"]
+
+        self._detector = HandDetector(source=source, detector=detector)
+        self._detector.set_error_callback(
+            lambda msg: self._sig.detector_error.emit(msg)
+        )
         self._detector_cb_id = self._detector.register_callback(self._detector_callback)
-        self._detector.start(show_preview=self._chk_show_preview.isChecked())
+        self._detector.start(show_preview=dlg.show_preview())
 
         for btn_id in (0, 1, 2):
             self._mode_group.button(btn_id).setEnabled(False)
@@ -1109,15 +1287,17 @@ class MainWindow(QMainWindow):
         self._rb_hand_detection.setChecked(True)
 
         self._btn_start_detector.setEnabled(False)
-        self._chk_show_preview.setEnabled(False)
         self._btn_stop_detector.setEnabled(True)
         self._set_status("Hand detection active.")
 
     def _cmd_stop_detector(self):
-        if self._detector_cb_id is not None:
-            self._detector.remove_callback(self._detector_cb_id)
-            self._detector_cb_id = None
-        self._detector.stop()
+        if self._detector is not None:
+            if self._detector_cb_id is not None:
+                self._detector.remove_callback(self._detector_cb_id)
+                self._detector_cb_id = None
+            self._detector.stop()
+            self._detector = None
+        self._joint_calculator = None
         self._smoothed_positions = None
 
         params = {k: self._tune_sliders[k].value() / 100 for k in self._tune_sliders}
@@ -1140,13 +1320,26 @@ class MainWindow(QMainWindow):
         self._block_sliders = False
 
         self._btn_start_detector.setEnabled(True)
-        self._chk_show_preview.setEnabled(True)
         self._btn_stop_detector.setEnabled(False)
         self._set_status("Hand detection stopped.")
 
+    def _on_detector_error(self, message: str) -> None:
+        """Called (on the main thread via signal) when the detector thread
+        encounters a fatal error.  Cleans up state and shows a dialog."""
+        self._cmd_stop_detector()
+        QMessageBox.critical(self, "Detection Error", message)
+
     def _detector_callback(self, hand_data: dict) -> None:
-        positions = hand_data_to_positions(
-            hand_data,
+        if self._joint_calculator is None:
+            return
+        landmarks = LandmarkData(
+            hands=hand_data.get("hands", []),
+            timestamp=hand_data.get("timestamp", 0.0),
+            frame_type=self._det_frame_type,
+            detector_name=self._det_detector_name,
+        )
+        positions = self._joint_calculator.calculate(
+            landmarks,
             hand_side=self.hand_type.capitalize(),
             mcp_pip_coupling=self._tune_sliders["mcp_pip_coupling"].value() / 100,
             cmc_abd_scale=   self._tune_sliders["cmc_abd_scale"].value()    / 100,
@@ -1300,7 +1493,7 @@ class MainWindow(QMainWindow):
             self._macro_recorder.stop()
         if self._macro_player.is_playing:
             self._macro_player.stop()
-        if self._detector.is_running():
+        if self._detector is not None and self._detector.is_running():
             if self._detector_cb_id:
                 self._detector.remove_callback(self._detector_cb_id)
             self._detector.stop()

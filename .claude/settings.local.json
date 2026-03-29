@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python -c:*)",
       "Bash(python:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(PYTHONPATH=src python -c \"from hand_detector import HandDetector, hand_data_to_positions; print\\('OK'\\)\" 2>&1)",
+      "Bash(PYTHONPATH=. python -c \":*)",
+      "Bash(PYTHONPATH=src python -m pytest tests/ -x -q)"
     ]
   }
 }

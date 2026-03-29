@@ -220,3 +220,4 @@ CLAUDE.md
 .claude/
 runtime/
 configs/
+.claude/settings.local.json
